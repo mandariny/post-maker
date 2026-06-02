@@ -128,7 +128,7 @@ export function App() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
           <div>
             <h1 className="text-xl font-semibold">여행 블로그 초안 자동화</h1>
-            <p className="text-sm text-stone-500">Supabase, EXIF, Google Places, OpenAI API 기반 MVP</p>
+            <p className="text-sm text-stone-500">Supabase, EXIF, Kakao Local API, OpenAI API 기반 MVP</p>
           </div>
           {user ? (
             <div className="flex items-center gap-3">

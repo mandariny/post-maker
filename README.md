@@ -10,7 +10,7 @@ React + Supabase + OpenAI API 기반 여행 블로그 초안 자동화 MVP입니
 - Storage: Supabase Storage bucket `trip-photos`
 - Serverless: Supabase Edge Functions
 - AI: OpenAI API
-- Place Search: Google Places API
+- Place Search: Kakao Local API
 
 ## Supabase Project
 
@@ -32,7 +32,7 @@ Supabase Edge Function secrets:
 ```bash
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4.1-mini
-GOOGLE_PLACES_API_KEY=...
+KAKAO_REST_API_KEY=...
 ```
 
 ## Setup
@@ -49,7 +49,7 @@ Deploy Edge Functions:
 ```bash
 supabase functions deploy guess-place
 supabase functions deploy generate-blog-draft
-supabase secrets set OPENAI_API_KEY=... OPENAI_MODEL=gpt-4.1-mini GOOGLE_PLACES_API_KEY=...
+supabase secrets set OPENAI_API_KEY=... OPENAI_MODEL=gpt-4.1-mini KAKAO_REST_API_KEY=...
 ```
 
 Enable Google provider in Supabase Auth and add the frontend URL to Auth redirect URLs.
@@ -82,7 +82,7 @@ npm run build
 2. User creates a trip record.
 3. User uploads travel photos to Supabase Storage.
 4. Browser extracts EXIF taken time and GPS.
-5. Edge Function calls Google Places API for place names when GPS exists.
+5. Edge Function calls Kakao Local API for place names or addresses when GPS exists.
 6. App stores photos and rebuilds date/place groups in Supabase Postgres.
 7. User selects places and writes place-level notes.
 8. Edge Function calls OpenAI API to generate a Markdown draft.
