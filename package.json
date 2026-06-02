@@ -1,0 +1,8 @@
+{
+  "name": "post-maker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "npm install --prefix frontend && npm run build --prefix frontend"
+  }
+}

@@ -11,11 +11,16 @@ frontend/tsconfig.tsbuildinfo
 frontend/.vercel/
 frontend/vite.out.log
 frontend/vite.err.log
+.vercel/
 
 .env
 .env.*
 supabase/.env
 supabase/functions/.env
 supabase/functions/.env.*
+supabase/.temp/
+supabase/supabase/
 
 *.log
+
+.vercel
