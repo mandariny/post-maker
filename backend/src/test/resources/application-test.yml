@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${SUPABASE_TEST_DB_URL:${SUPABASE_DB_URL}}
+    username: ${SUPABASE_TEST_DB_USERNAME:${SUPABASE_DB_USERNAME}}
+    password: ${SUPABASE_TEST_DB_PASSWORD:${SUPABASE_DB_PASSWORD}}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: public
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+app:
+  storage:
+    local-root: target/test-uploads
+  google:
+    places-api-key:
+  openai:
+    api-key:
+    model: test-model

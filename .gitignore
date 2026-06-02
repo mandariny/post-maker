@@ -1,0 +1,15 @@
+.idea/
+.vscode/
+*.iml
+
+backend/target/
+backend/uploads/
+
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+.env
+.env.*
+
+*.log
