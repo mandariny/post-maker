@@ -34,6 +34,16 @@ export type PlaceGroup = {
   user_memo: string;
 };
 
+export type PhotoPreview = {
+  id: string;
+  original_file_name: string;
+  signed_url: string;
+};
+
+export type PlaceGroupWithPhotos = PlaceGroup & {
+  photos: PhotoPreview[];
+};
+
 export type BlogDraft = {
   id: string;
   trip_id: string;

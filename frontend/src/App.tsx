@@ -1,7 +1,7 @@
 import { Copy, LogOut, Save, Sparkles, Upload } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { travelApi } from './travelApi';
-import { BlogDraft, PlaceGroup, Trip, TripForm } from './types';
+import { BlogDraft, PlaceGroupWithPhotos, Trip, TripForm } from './types';
 
 const today = new Date().toISOString().slice(0, 10);
 const blankTrip: TripForm = {
@@ -22,7 +22,7 @@ export function App() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [tripForm, setTripForm] = useState<TripForm>(blankTrip);
-  const [places, setPlaces] = useState<PlaceGroup[]>([]);
+  const [places, setPlaces] = useState<PlaceGroupWithPhotos[]>([]);
   const [draft, setDraft] = useState<BlogDraft | null>(null);
   const [status, setStatus] = useState('Supabase Google 로그인 후 사용할 수 있습니다.');
   const [busy, setBusy] = useState(false);
@@ -88,18 +88,18 @@ export function App() {
     }
   }
 
-  async function togglePlace(place: PlaceGroup, selected: boolean) {
+  async function togglePlace(place: PlaceGroupWithPhotos, selected: boolean) {
     const updated = await travelApi.updatePlace({ ...place, selected });
-    setPlaces((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    setPlaces((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
   }
 
-  function editMemo(place: PlaceGroup, userMemo: string) {
+  function editMemo(place: PlaceGroupWithPhotos, userMemo: string) {
     setPlaces((current) => current.map((item) => (item.id === place.id ? { ...item, user_memo: userMemo } : item)));
   }
 
-  async function saveMemo(place: PlaceGroup) {
+  async function saveMemo(place: PlaceGroupWithPhotos) {
     const updated = await travelApi.updatePlace(place);
-    setPlaces((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    setPlaces((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
   }
 
   async function generateDraft() {
@@ -222,6 +222,21 @@ export function App() {
                           </span>
                         </span>
                       </label>
+
+                      {place.photos.length > 0 && (
+                        <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-5">
+                          {place.photos.slice(0, 10).map((photo) => (
+                            <img
+                              key={photo.id}
+                              src={photo.signed_url}
+                              alt={photo.original_file_name}
+                              className="aspect-square w-full rounded-md border border-stone-200 object-cover"
+                              loading="lazy"
+                            />
+                          ))}
+                        </div>
+                      )}
+
                       <textarea
                         className="mt-3 min-h-24 w-full rounded-md border border-stone-200 p-2 text-sm"
                         placeholder="느낌, 추천 포인트, 아쉬웠던 점, 음식/카페/전시/풍경 키워드"

@@ -1,6 +1,6 @@
 import exifr from 'exifr';
 import { supabase } from './supabaseClient';
-import { BlogDraft, Photo, PlaceGroup, Trip, TripForm } from './types';
+import { BlogDraft, Photo, PhotoPreview, PlaceGroup, PlaceGroupWithPhotos, Trip, TripForm } from './types';
 
 type UserProfile = {
   id: string;
@@ -18,10 +18,9 @@ type GroupKey = string;
 
 export const travelApi = {
   async signInWithGoogle() {
-    const redirectTo = window.location.origin;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo }
+      options: { redirectTo: window.location.origin }
     });
     if (error) throw error;
   },
@@ -37,11 +36,7 @@ export const travelApi = {
     return {
       id: data.user.id,
       email: data.user.email ?? '',
-      name:
-        data.user.user_metadata?.full_name ??
-        data.user.user_metadata?.name ??
-        data.user.email ??
-        '사용자'
+      name: data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? data.user.email ?? '사용자'
     };
   },
 
@@ -130,7 +125,6 @@ export const travelApi = {
 
     const remove = await supabase.from('place_groups').delete().eq('trip_id', trip.id);
     if (remove.error) throw remove.error;
-
     if (groups.size === 0) return;
 
     const rows = Array.from(groups.entries()).map(([key, groupPhotos]) => {
@@ -154,15 +148,26 @@ export const travelApi = {
     if (insert.error) throw insert.error;
   },
 
-  async listPlaces(tripId: string): Promise<PlaceGroup[]> {
-    const { data, error } = await supabase
+  async listPlaces(tripId: string): Promise<PlaceGroupWithPhotos[]> {
+    const { data: places, error } = await supabase
       .from('place_groups')
       .select('*')
       .eq('trip_id', tripId)
       .order('visit_date', { ascending: true })
       .order('name', { ascending: true });
     if (error) throw error;
-    return data ?? [];
+
+    const { data: photos, error: photosError } = await supabase
+      .from('photos')
+      .select('*')
+      .eq('trip_id', tripId);
+    if (photosError) throw photosError;
+
+    const previewMap = await buildPhotoPreviewMap(photos ?? [], places ?? []);
+    return (places ?? []).map((place) => ({
+      ...place,
+      photos: previewMap.get(place.id) ?? []
+    }));
   },
 
   async updatePlace(place: PlaceGroup): Promise<PlaceGroup> {
@@ -250,8 +255,8 @@ async function guessPlaceName(latitude: number, longitude: number): Promise<stri
   const { data, error } = await supabase.functions.invoke('guess-place', {
     body: { latitude, longitude }
   });
-  if (error) return `위치 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-  return data?.placeName ?? `위치 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+  if (error) return formatFallback(latitude, longitude);
+  return data?.placeName ?? formatFallback(latitude, longitude);
 }
 
 function sanitizeFileName(name: string) {
@@ -264,4 +269,33 @@ function toVisitDate(takenAt: string | null, fallback: string) {
 
 function groupKey(visitDate: string, name: string) {
   return `${visitDate}|${name}`;
+}
+
+function formatFallback(latitude: number, longitude: number) {
+  return `위치 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+}
+
+async function buildPhotoPreviewMap(photos: Photo[], places: PlaceGroup[]) {
+  const result = new Map<string, PhotoPreview[]>();
+
+  for (const photo of photos) {
+    const visitDate = toVisitDate(photo.taken_at, new Date(photo.created_at).toISOString().slice(0, 10));
+    const name = photo.place_name || '위치 정보 없음';
+    const place =
+      places.find((candidate) => candidate.visit_date === visitDate && candidate.name === name) ??
+      places.find((candidate) => candidate.name === name);
+    if (!place) continue;
+
+    const { data } = await supabase.storage.from('trip-photos').createSignedUrl(photo.storage_path, 60 * 30);
+    if (!data?.signedUrl) continue;
+
+    const preview = {
+      id: photo.id,
+      original_file_name: photo.original_file_name,
+      signed_url: data.signedUrl
+    };
+    result.set(place.id, [...(result.get(place.id) ?? []), preview]);
+  }
+
+  return result;
 }
