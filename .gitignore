@@ -8,6 +8,9 @@ backend/uploads/
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+frontend/.vercel/
+frontend/vite.out.log
+frontend/vite.err.log
 
 .env
 .env.*
