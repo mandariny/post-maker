@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Travel Blog Draft Automation MVP Architecture</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f7f4;
+        --panel: #ffffff;
+        --text: #1f2933;
+        --muted: #65707c;
+        --line: #d9ddd4;
+        --accent: #047857;
+        --accent-soft: #dff3ea;
+        --code: #25313f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+        line-height: 1.6;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 40px 24px 64px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.25;
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 32px;
+        margin-bottom: 8px;
+      }
+
+      h2 {
+        font-size: 22px;
+        margin-bottom: 14px;
+      }
+
+      h3 {
+        font-size: 16px;
+        margin-bottom: 8px;
+      }
+
+      p {
+        margin: 0 0 12px;
+      }
+
+      ul,
+      ol {
+        margin: 0;
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 4px 0;
+      }
+
+      code {
+        color: var(--code);
+        background: #eef1ec;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-family: Consolas, Monaco, monospace;
+        font-size: 0.94em;
+      }
+
+      .lead {
+        color: var(--muted);
+        font-size: 16px;
+        margin-bottom: 26px;
+      }
+
+      .section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 22px;
+        margin-top: 18px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .box {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+        background: #fbfcfa;
+      }
+
+      .tag {
+        display: inline-block;
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-radius: 999px;
+        padding: 3px 9px;
+        font-size: 12px;
+        font-weight: 700;
+        margin-right: 6px;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .flow div {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fbfcfa;
+        min-height: 88px;
+      }
+
+      .arrow {
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+
+      .table th,
+      .table td {
+        border: 1px solid var(--line);
+        padding: 9px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .table th {
+        background: #eef1ec;
+      }
+
+      @media (max-width: 820px) {
+        main {
+          padding: 28px 16px 48px;
+        }
+
+        .grid,
+        .flow {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>여행 블로그 자동화 MVP 아키텍처</h1>
+      <p class="lead">
+        현재 프로젝트는 Spring Boot 백엔드 없이 React 프론트엔드와 Supabase Auth, Database, Storage, Edge Functions를 중심으로 구성되어 있다.
+        OpenAI API와 Google Places API는 브라우저에서 직접 호출하지 않고 Supabase Edge Functions 뒤에 둔다.
+      </p>
+
+      <section class="section">
+        <h2>1. 전체 구성</h2>
+        <div class="grid">
+          <div class="box">
+            <h3>Frontend</h3>
+            <p><span class="tag">React</span><span class="tag">TypeScript</span><span class="tag">Vite</span><span class="tag">Tailwind CSS</span></p>
+            <ul>
+              <li>사용자 로그인 상태 표시</li>
+              <li>여행 기록 생성 및 선택</li>
+              <li>사진 업로드 및 EXIF 추출</li>
+              <li>장소 선택, 메모 입력, 초안 수정/복사</li>
+            </ul>
+          </div>
+
+          <div class="box">
+            <h3>Supabase</h3>
+            <p><span class="tag">Auth</span><span class="tag">Postgres</span><span class="tag">Storage</span><span class="tag">Edge Functions</span></p>
+            <ul>
+              <li>Google OAuth 인증</li>
+              <li>여행/사진/장소/초안 데이터 저장</li>
+              <li>여행 사진 파일 저장</li>
+              <li>외부 API 호출을 서버리스 함수로 보호</li>
+            </ul>
+          </div>
+
+          <div class="box">
+            <h3>External APIs</h3>
+            <p><span class="tag">Google Places</span><span class="tag">OpenAI</span></p>
+            <ul>
+              <li>GPS 좌표 기반 장소명 추정</li>
+              <li>선택된 장소와 사용자 메모 기반 Markdown 초안 생성</li>
+            </ul>
+          </div>
+
+          <div class="box">
+            <h3>Deployment</h3>
+            <p><span class="tag">Static Frontend</span><span class="tag">Docker</span><span class="tag">CI</span></p>
+            <ul>
+              <li>프론트엔드는 정적 빌드 가능</li>
+              <li>Supabase 함수와 마이그레이션은 별도 배포</li>
+              <li>CI는 프론트 테스트/빌드와 Docker build 수행</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>2. 주요 파일 구조</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>경로</th>
+              <th>역할</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>frontend/src/App.tsx</code></td>
+              <td>메인 화면, 인증 상태, 여행 생성, 업로드, 장소 선택, 초안 생성 UI</td>
+            </tr>
+            <tr>
+              <td><code>frontend/src/travelApi.ts</code></td>
+              <td>Supabase Auth/DB/Storage/Functions 호출을 감싼 클라이언트 API</td>
+            </tr>
+            <tr>
+              <td><code>frontend/src/supabaseClient.ts</code></td>
+              <td>Supabase 클라이언트 생성. <code>VITE_SUPABASE_URL</code>, <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> 사용</td>
+            </tr>
+            <tr>
+              <td><code>frontend/src/types.ts</code></td>
+              <td>Trip, Photo, PlaceGroup, BlogDraft 타입 정의</td>
+            </tr>
+            <tr>
+              <td><code>supabase/migrations/20260602000000_create_travel_blog_mvp.sql</code></td>
+              <td>테이블, 인덱스, RLS 정책, Storage bucket/policy 정의</td>
+            </tr>
+            <tr>
+              <td><code>supabase/functions/guess-place/index.ts</code></td>
+              <td>Google Places API를 호출해 GPS 좌표에서 장소명 추정</td>
+            </tr>
+            <tr>
+              <td><code>supabase/functions/generate-blog-draft/index.ts</code></td>
+              <td>OpenAI API를 호출해 Markdown 블로그 초안 생성</td>
+            </tr>
+            <tr>
+              <td><code>docker-compose.yml</code></td>
+              <td>정적 프론트엔드 컨테이너 빌드/실행</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <h2>3. 데이터 모델</h2>
+        <div class="grid">
+          <div class="box">
+            <h3><code>trips</code></h3>
+            <ul>
+              <li><code>id</code>, <code>user_id</code></li>
+              <li><code>title</code>, <code>region</code></li>
+              <li><code>start_date</code>, <code>end_date</code></li>
+              <li><code>created_at</code></li>
+            </ul>
+          </div>
+          <div class="box">
+            <h3><code>photos</code></h3>
+            <ul>
+              <li><code>trip_id</code>, <code>user_id</code></li>
+              <li><code>storage_path</code>, <code>original_file_name</code></li>
+              <li><code>taken_at</code>, <code>latitude</code>, <code>longitude</code></li>
+              <li><code>place_name</code></li>
+            </ul>
+          </div>
+          <div class="box">
+            <h3><code>place_groups</code></h3>
+            <ul>
+              <li><code>trip_id</code>, <code>user_id</code></li>
+              <li><code>name</code>, <code>visit_date</code></li>
+              <li><code>photo_count</code>, <code>selected</code></li>
+              <li><code>user_memo</code></li>
+            </ul>
+          </div>
+          <div class="box">
+            <h3><code>blog_drafts</code></h3>
+            <ul>
+              <li><code>trip_id</code>, <code>user_id</code></li>
+              <li><code>title</code></li>
+              <li><code>content_markdown</code></li>
+              <li><code>created_at</code>, <code>updated_at</code></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>4. 사용자 흐름</h2>
+        <div class="flow">
+          <div>
+            <h3>1. 로그인</h3>
+            <p>React 앱이 Supabase Auth의 Google OAuth를 시작한다.</p>
+          </div>
+          <div>
+            <h3>2. 여행 생성</h3>
+            <p><code>trips</code>에 사용자 소유 여행 기록을 생성한다.</p>
+          </div>
+          <div>
+            <h3>3. 사진 업로드</h3>
+            <p>브라우저에서 EXIF를 추출하고 Storage bucket <code>trip-photos</code>에 저장한다.</p>
+          </div>
+          <div>
+            <h3>4. 장소 추정</h3>
+            <p>GPS가 있으면 <code>guess-place</code> 함수가 Google Places API를 호출한다.</p>
+          </div>
+          <div>
+            <h3>5. 그룹화</h3>
+            <p>촬영 날짜와 장소명 기준으로 <code>place_groups</code>를 재생성한다.</p>
+          </div>
+          <div>
+            <h3>6. 장소 선택</h3>
+            <p>사용자가 포함할 장소를 선택하고 장소별 메모를 입력한다.</p>
+          </div>
+          <div>
+            <h3>7. 초안 생성</h3>
+            <p><code>generate-blog-draft</code> 함수가 OpenAI API를 호출한다.</p>
+          </div>
+          <div>
+            <h3>8. 저장/복사</h3>
+            <p>Markdown 초안을 <code>blog_drafts</code>에 저장하고 화면에서 복사한다.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>5. 보안 경계</h2>
+        <ul>
+          <li>브라우저에는 Supabase URL과 publishable key만 노출한다.</li>
+          <li><code>OPENAI_API_KEY</code>, <code>GOOGLE_PLACES_API_KEY</code>는 Supabase Edge Function secrets에만 둔다.</li>
+          <li>모든 사용자 데이터 테이블은 RLS를 켜고 <code>auth.uid() = user_id</code> 정책으로 제한한다.</li>
+          <li>Storage 경로는 <code>{user_id}/{trip_id}/{file}</code> 구조를 사용하고, 첫 번째 폴더가 로그인 사용자와 일치해야 접근 가능하다.</li>
+          <li><code>service_role</code> 또는 secret key는 프론트엔드 env에 넣지 않는다.</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>6. 배포와 설정</h2>
+        <ol>
+          <li>Supabase Auth에서 Google provider를 활성화한다.</li>
+          <li>Google OAuth redirect URI에 <code>https://opamaqmxvpxvoloadynw.supabase.co/auth/v1/callback</code>을 추가한다.</li>
+          <li>Supabase Auth redirect URL에 <code>http://localhost:5173</code> 및 운영 URL을 추가한다.</li>
+          <li><code>supabase db push</code>로 마이그레이션을 적용한다.</li>
+          <li><code>guess-place</code>, <code>generate-blog-draft</code> Edge Functions를 배포한다.</li>
+          <li>Edge Function secrets로 <code>OPENAI_API_KEY</code>, <code>OPENAI_MODEL</code>, <code>GOOGLE_PLACES_API_KEY</code>를 설정한다.</li>
+          <li>프론트엔드에는 <code>VITE_SUPABASE_URL</code>, <code>VITE_SUPABASE_PUBLISHABLE_KEY</code>를 설정한다.</li>
+        </ol>
+      </section>
+    </main>
+  </body>
+</html>

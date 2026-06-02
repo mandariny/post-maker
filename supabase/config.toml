@@ -1,0 +1,7 @@
+project_id = "opamaqmxvpxvoloadynw"
+
+[functions.generate-blog-draft]
+verify_jwt = true
+
+[functions.guess-place]
+verify_jwt = true

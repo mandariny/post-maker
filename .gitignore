@@ -11,5 +11,8 @@ frontend/tsconfig.tsbuildinfo
 
 .env
 .env.*
+supabase/.env
+supabase/functions/.env
+supabase/functions/.env.*
 
 *.log

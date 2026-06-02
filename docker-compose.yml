@@ -1,30 +1,9 @@
 services:
-  backend:
-    build:
-      context: ./backend
-    environment:
-      SUPABASE_DB_URL: ${SUPABASE_DB_URL}
-      SUPABASE_DB_USERNAME: ${SUPABASE_DB_USERNAME}
-      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
-      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
-      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000
-      LOCAL_STORAGE_ROOT: /data/uploads
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-dev-client}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-dev-secret}
-      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-    ports:
-      - "8080:8080"
-    volumes:
-      - uploaded-photos:/data/uploads
-
   frontend:
     build:
       context: ./frontend
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
     ports:
       - "3000:80"
-    depends_on:
-      - backend
-
-volumes:
-  uploaded-photos:
