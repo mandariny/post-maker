@@ -8,7 +8,8 @@ vi.mock('./travelApi', () => ({
     onAuthChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
     signInWithGoogle: vi.fn(),
     signOut: vi.fn(),
-    listTrips: vi.fn().mockResolvedValue([])
+    listTrips: vi.fn().mockResolvedValue([]),
+    deleteTrip: vi.fn()
   }
 }));
 

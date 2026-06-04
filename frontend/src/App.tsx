@@ -1,5 +1,5 @@
-import { Copy, LogOut, Save, Sparkles, Upload } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Copy, LogOut, Save, Sparkles, Trash2, Upload } from 'lucide-react';
+import { FormEvent, MouseEvent, useEffect, useMemo, useState } from 'react';
 import { travelApi } from './travelApi';
 import { BlogDraft, PlaceGroupWithPhotos, Trip, TripForm } from './types';
 
@@ -75,14 +75,46 @@ export function App() {
     }
   }
 
+  async function deleteTrip(event: MouseEvent<HTMLButtonElement>, trip: Trip) {
+    event.stopPropagation();
+    const confirmed = window.confirm(`"${trip.title}" 여행 기록과 사진을 삭제할까요?`);
+    if (!confirmed) return;
+
+    setBusy(true);
+    try {
+      await travelApi.deleteTrip(trip.id);
+      const nextTrips = trips.filter((item) => item.id !== trip.id);
+      setTrips(nextTrips);
+
+      if (activeTrip?.id === trip.id) {
+        const nextTrip = nextTrips[0] ?? null;
+        if (nextTrip) {
+          await selectTrip(nextTrip);
+        } else {
+          setActiveTrip(null);
+          setPlaces([]);
+          setDraft(null);
+        }
+      }
+
+      setStatus('여행 기록을 삭제했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function upload(files: FileList | null) {
     if (!activeTrip || !files?.length) return;
     setBusy(true);
-    setStatus('사진 업로드, EXIF 추출, 장소명 추정 중입니다.');
+    setStatus('사진 업로드, EXIF 추출, Kakao 장소명 확인 중입니다.');
     try {
-      await travelApi.uploadPhotos(activeTrip, files);
+      const result = await travelApi.uploadPhotos(activeTrip, files);
       setPlaces(await travelApi.listPlaces(activeTrip.id));
-      setStatus('사진과 장소 그룹을 정리했습니다.');
+      setStatus(
+        result.placeWarnings.length > 0
+          ? `사진은 정리했지만 장소명 확인이 필요한 항목이 있습니다. 콘솔에서 Kakao 진단 정보를 확인하세요. (${result.placeWarnings.length}건)`
+          : '사진과 장소 그룹을 촬영 순서 기준으로 정리했습니다.'
+      );
     } finally {
       setBusy(false);
     }
@@ -105,11 +137,11 @@ export function App() {
   async function generateDraft() {
     if (!activeTrip) return;
     setBusy(true);
-    setStatus('OpenAI API로 블로그 초안을 생성하는 중입니다.');
+    setStatus('OpenAI API로 블로그 글을 작성하는 중입니다.');
     try {
       const generated = await travelApi.generateDraft(activeTrip, places);
       setDraft(generated);
-      setStatus('Markdown 초안을 생성했습니다.');
+      setStatus('블로그 글 초안을 작성했습니다.');
     } finally {
       setBusy(false);
     }
@@ -165,14 +197,25 @@ export function App() {
             <h2 className="mb-3 text-base font-semibold">내 여행</h2>
             <div className="space-y-2">
               {trips.map((trip) => (
-                <button
+                <div
                   key={trip.id}
-                  className={`w-full rounded-md border px-3 py-2 text-left text-sm ${activeTrip?.id === trip.id ? 'border-emerald-700 bg-emerald-50' : 'border-stone-200'}`}
-                  onClick={() => selectTrip(trip)}
+                  className={`flex w-full items-center gap-2 rounded-md border p-2 text-sm ${
+                    activeTrip?.id === trip.id ? 'border-emerald-700 bg-emerald-50' : 'border-stone-200'
+                  }`}
                 >
-                  <div className="font-medium">{trip.title}</div>
-                  <div className="text-stone-500">{trip.region}</div>
-                </button>
+                  <button className="min-w-0 flex-1 text-left" onClick={() => selectTrip(trip)}>
+                    <span className="block truncate font-medium">{trip.title}</span>
+                    <span className="block truncate text-stone-500">{trip.region}</span>
+                  </button>
+                  <button
+                    className="rounded-md border border-stone-300 p-2 text-stone-500 hover:border-red-300 hover:text-red-600 disabled:opacity-50"
+                    title="여행 삭제"
+                    disabled={busy}
+                    onClick={(event) => deleteTrip(event, trip)}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               ))}
               {trips.length === 0 && <p className="text-sm text-stone-500">아직 생성한 여행 기록이 없습니다.</p>}
             </div>
@@ -188,7 +231,9 @@ export function App() {
                   <p className="text-sm text-stone-500">
                     {activeTrip.region} · {activeTrip.start_date} ~ {activeTrip.end_date}
                   </p>
-                  <p className="mt-1 text-sm text-stone-600">선택 장소 {selectedCount}곳 · 전체 장소 {places.length}곳</p>
+                  <p className="mt-1 text-sm text-stone-600">
+                    선택 장소 {selectedCount}곳 · 전체 장소 {places.length}곳
+                  </p>
                 </div>
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-white">
                   <Upload size={18} /> 사진 업로드
@@ -239,7 +284,7 @@ export function App() {
 
                       <textarea
                         className="mt-3 min-h-24 w-full rounded-md border border-stone-200 p-2 text-sm"
-                        placeholder="느낌, 추천 포인트, 아쉬웠던 점, 음식/카페/전시/풍경 키워드"
+                        placeholder="느낀 점, 맛, 분위기, 추천 포인트 등을 적어주세요."
                         value={place.user_memo}
                         onChange={(event) => editMemo(place, event.target.value)}
                         onBlur={() => saveMemo(place)}

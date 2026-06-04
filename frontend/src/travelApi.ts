@@ -14,6 +14,25 @@ type ExifResult = {
   longitude: number | null;
 };
 
+type UploadResult = {
+  placeWarnings: string[];
+};
+
+type GuessPlaceResponse = {
+  placeName?: string;
+  diagnostic?: {
+    source?: string;
+    reason?: string;
+    categoryAttempts?: Array<{
+      category: string;
+      ok: boolean;
+      status?: number;
+      count?: number;
+      error?: string;
+    }>;
+  };
+};
+
 type GroupKey = string;
 
 type DraftPlace = PlaceGroup & {
@@ -23,6 +42,9 @@ type DraftPlace = PlaceGroup & {
     taken_at: string | null;
   }>;
 };
+
+const NEEDS_PLACE_REVIEW = '장소명 확인 필요';
+const NO_LOCATION = '위치 정보 없음';
 
 export const travelApi = {
   async signInWithGoogle() {
@@ -74,8 +96,26 @@ export const travelApi = {
     return data;
   },
 
-  async uploadPhotos(trip: Trip, files: FileList): Promise<void> {
+  async deleteTrip(tripId: string): Promise<void> {
+    const { data: photos, error: photosError } = await supabase
+      .from('photos')
+      .select('storage_path')
+      .eq('trip_id', tripId);
+    if (photosError) throw photosError;
+
+    const storagePaths = (photos ?? []).map((photo) => photo.storage_path).filter(Boolean);
+    if (storagePaths.length > 0) {
+      const { error: storageError } = await supabase.storage.from('trip-photos').remove(storagePaths);
+      if (storageError) throw storageError;
+    }
+
+    const { error } = await supabase.from('trips').delete().eq('id', tripId);
+    if (error) throw error;
+  },
+
+  async uploadPhotos(trip: Trip, files: FileList): Promise<UploadResult> {
     const user = await requireUser();
+    const placeWarnings: string[] = [];
     const prepared = await Promise.all(
       Array.from(files).map(async (file, uploadIndex) => ({
         file,
@@ -88,10 +128,15 @@ export const travelApi = {
 
     for (const item of ordered) {
       const { file, exif } = item;
-      const placeName =
+      const placeResult =
         exif.latitude !== null && exif.longitude !== null
           ? await guessPlaceName(exif.latitude, exif.longitude)
-          : '위치 정보 없음';
+          : { placeName: NO_LOCATION, warning: `${file.name}: EXIF GPS 정보가 없습니다.` };
+
+      if (placeResult.warning) {
+        placeWarnings.push(placeResult.warning);
+      }
+
       const storagePath = `${user.id}/${trip.id}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
 
       const upload = await supabase.storage.from('trip-photos').upload(storagePath, file, {
@@ -108,12 +153,13 @@ export const travelApi = {
         taken_at: exif.takenAt,
         latitude: exif.latitude,
         longitude: exif.longitude,
-        place_name: placeName
+        place_name: placeResult.placeName
       });
       if (error) throw error;
     }
 
     await travelApi.rebuildPlaceGroups(trip);
+    return { placeWarnings };
   },
 
   async rebuildPlaceGroups(trip: Trip): Promise<void> {
@@ -273,12 +319,26 @@ async function extractExif(file: File): Promise<ExifResult> {
   }
 }
 
-async function guessPlaceName(latitude: number, longitude: number): Promise<string> {
-  const { data, error } = await supabase.functions.invoke('guess-place', {
+async function guessPlaceName(latitude: number, longitude: number): Promise<{ placeName: string; warning?: string }> {
+  const { data, error } = await supabase.functions.invoke<GuessPlaceResponse>('guess-place', {
     body: { latitude, longitude }
   });
-  if (error) return '장소명 확인 필요';
-  return normalizePlaceName(data?.placeName);
+
+  if (error) {
+    const warning = `Kakao 장소명 요청 실패: ${error.message}`;
+    console.warn(warning);
+    return { placeName: NEEDS_PLACE_REVIEW, warning };
+  }
+
+  const placeName = normalizePlaceName(data?.placeName);
+  const reason = data?.diagnostic?.reason;
+  if (placeName === NEEDS_PLACE_REVIEW || reason) {
+    const warning = `Kakao 장소명 확인 필요: ${reason ?? 'no_exact_place'} (${latitude}, ${longitude})`;
+    console.warn(warning, data?.diagnostic);
+    return { placeName, warning };
+  }
+
+  return { placeName };
 }
 
 function sanitizeFileName(name: string) {
@@ -295,8 +355,8 @@ function groupKey(visitDate: string, name: string) {
 
 function normalizePlaceName(name: string | null | undefined) {
   const trimmed = name?.trim();
-  if (!trimmed) return '장소명 확인 필요';
-  if (/위치\s*-?\d|\d+\.\d+/.test(trimmed)) return '장소명 확인 필요';
+  if (!trimmed) return NEEDS_PLACE_REVIEW;
+  if (/위치\s*-?\d|\d+\.\d+/.test(trimmed)) return NEEDS_PLACE_REVIEW;
   return trimmed;
 }
 

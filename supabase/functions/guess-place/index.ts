@@ -5,7 +5,23 @@ type KakaoPlace = {
   category_name?: string;
   address_name?: string;
   road_address_name?: string;
+  distance?: string;
 };
+
+type Diagnostic = {
+  source: 'category' | 'address' | 'fallback';
+  reason?: string;
+  categoryAttempts?: Array<{
+    category: string;
+    ok: boolean;
+    status?: number;
+    count?: number;
+    error?: string;
+  }>;
+};
+
+const CATEGORY_GROUPS = ['AT4', 'CT1', 'FD6', 'CE7', 'AD5', 'PK6', 'MT1', 'CS2', 'PS3', 'AC5', 'BK9', 'HP8', 'PM9', 'SC4', 'OL7', 'SW8'];
+const FALLBACK_PLACE_NAME = '장소명 확인 필요';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -17,53 +33,88 @@ Deno.serve(async (req) => {
     const { latitude, longitude } = await req.json();
 
     if (typeof latitude !== 'number' || typeof longitude !== 'number') {
-      return jsonResponse({ placeName: '위치 정보 없음' });
+      return jsonResponse({
+        placeName: '위치 정보 없음',
+        diagnostic: { source: 'fallback', reason: 'invalid_coordinates' } satisfies Diagnostic
+      });
     }
 
     if (!apiKey) {
-      return jsonResponse({ placeName: '장소명 확인 필요' });
+      return jsonResponse({
+        placeName: FALLBACK_PLACE_NAME,
+        diagnostic: { source: 'fallback', reason: 'missing_kakao_rest_api_key' } satisfies Diagnostic
+      });
     }
 
-    const placeName = await searchNearbyPlace(apiKey, latitude, longitude);
-    if (placeName) {
-      return jsonResponse({ placeName });
+    const categoryResult = await searchNearbyPlace(apiKey, latitude, longitude);
+    if (categoryResult.placeName) {
+      return jsonResponse({
+        placeName: categoryResult.placeName,
+        diagnostic: { source: 'category', categoryAttempts: categoryResult.attempts } satisfies Diagnostic
+      });
     }
 
-    const address = await reverseGeocode(apiKey, latitude, longitude);
-    return jsonResponse({ placeName: address ?? '장소명 확인 필요' });
+    const addressResult = await reverseGeocode(apiKey, latitude, longitude);
+    if (addressResult.placeName) {
+      return jsonResponse({
+        placeName: addressResult.placeName,
+        diagnostic: {
+          source: 'address',
+          reason: 'no_category_place_result',
+          categoryAttempts: categoryResult.attempts
+        } satisfies Diagnostic
+      });
+    }
+
+    return jsonResponse({
+      placeName: FALLBACK_PLACE_NAME,
+      diagnostic: {
+        source: 'fallback',
+        reason: addressResult.reason ?? 'no_place_or_address_result',
+        categoryAttempts: categoryResult.attempts
+      } satisfies Diagnostic
+    });
   } catch (error) {
     return jsonResponse({ error: error instanceof Error ? error.message : 'Unknown error' }, 500);
   }
 });
 
 async function searchNearbyPlace(apiKey: string, latitude: number, longitude: number) {
-  const categories = ['AT4', 'CT1', 'FD6', 'CE7'];
+  const attempts: Diagnostic['categoryAttempts'] = [];
 
-  for (const category of categories) {
+  for (const category of CATEGORY_GROUPS) {
     const url = new URL('https://dapi.kakao.com/v2/local/search/category.json');
     url.searchParams.set('category_group_code', category);
     url.searchParams.set('x', String(longitude));
     url.searchParams.set('y', String(latitude));
-    url.searchParams.set('radius', '250');
+    url.searchParams.set('radius', '500');
     url.searchParams.set('sort', 'distance');
-    url.searchParams.set('size', '1');
+    url.searchParams.set('size', '3');
 
-    const response = await fetch(url, {
-      headers: { Authorization: `KakaoAK ${apiKey}` }
-    });
+    try {
+      const response = await fetch(url, {
+        headers: { Authorization: `KakaoAK ${apiKey}` }
+      });
 
-    if (!response.ok) {
-      continue;
-    }
+      if (!response.ok) {
+        attempts.push({ category, ok: false, status: response.status, error: await response.text() });
+        continue;
+      }
 
-    const data = await response.json();
-    const place = data.documents?.[0] as KakaoPlace | undefined;
-    if (place?.place_name) {
-      return place.place_name;
+      const data = await response.json();
+      const documents = (data.documents ?? []) as KakaoPlace[];
+      attempts.push({ category, ok: true, count: documents.length });
+
+      const place = documents.find((document) => document.place_name);
+      if (place?.place_name) {
+        return { placeName: place.place_name, attempts };
+      }
+    } catch (error) {
+      attempts.push({ category, ok: false, error: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
-  return null;
+  return { placeName: null, attempts };
 }
 
 async function reverseGeocode(apiKey: string, latitude: number, longitude: number) {
@@ -76,10 +127,11 @@ async function reverseGeocode(apiKey: string, latitude: number, longitude: numbe
   });
 
   if (!response.ok) {
-    return null;
+    return { placeName: null, reason: `kakao_address_http_${response.status}` };
   }
 
   const data = await response.json();
   const document = data.documents?.[0];
-  return document?.road_address?.address_name ?? document?.address?.address_name ?? null;
+  const placeName = document?.road_address?.building_name || document?.road_address?.address_name || document?.address?.address_name || null;
+  return { placeName, reason: placeName ? undefined : 'no_address_result' };
 }

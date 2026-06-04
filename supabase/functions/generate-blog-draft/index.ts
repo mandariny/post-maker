@@ -54,15 +54,16 @@ Deno.serve(async (req) => {
       .join('\n\n');
 
     const prompt = `
-다음 여행 정보를 바탕으로 한국어 여행 블로그 초안을 Markdown으로 작성해줘.
+다음 여행 정보를 바탕으로 한국어 여행 블로그 글을 Markdown으로 완성해줘.
 
-중요 요구사항:
+작성 규칙:
+- "어떻게 쓰면 좋다", "덧붙이면 좋다", "작성해보자" 같은 가이드 문장을 쓰지 말고 실제 블로그 본문을 작성한다.
 - 장소 순서는 아래에 제공된 순서를 그대로 따른다. 이 순서는 업로드 순서가 아니라 사진 촬영 시각 기준이다.
 - 좌표나 위도/경도는 절대 쓰지 말고, 제공된 장소명만 사용한다.
 - 사용자가 쓴 메모를 그대로 복사하지 말고, 의미를 살려 블로그에 어울리는 자연스러운 문장으로 재작성한다.
-- 메모가 없는 장소도 장소명, 방문일, 사진 수, 사진 파일명 힌트를 바탕으로 어색하지 않은 여행 기록 문장을 만든다.
+- 메모가 없는 장소도 장소명, 방문일, 사진 수, 사진 파일명 힌트를 바탕으로 실제 여행 후기처럼 작성한다.
 - 과장된 광고 문구, 협찬 느낌, 확정할 수 없는 정보는 쓰지 않는다.
-- 블로그 제목 후보 3개와 본문을 포함한다.
+- 결과물은 블로그 제목 후보 3개와 완성된 본문으로 구성한다.
 - 본문은 장소별 소제목을 두고, 전체 흐름이 여행 동선처럼 읽히게 작성한다.
 
 여행 제목: ${trip.title}
@@ -85,7 +86,7 @@ ${placeLines}
           {
             role: 'system',
             content:
-              '너는 사진 메타데이터와 간단한 메모를 바탕으로 자연스러운 한국어 여행 블로그 초안을 쓰는 편집자다. 메모는 원문 인용이 아니라 블로그 문장으로 각색한다.'
+              '너는 사진 메타데이터와 간단한 메모를 바탕으로 완성된 한국어 여행 블로그 글을 쓰는 편집자다. 메모는 원문 인용이 아니라 자연스러운 블로그 문장으로 각색한다. 조언이나 작성 가이드를 출력하지 않는다.'
           },
           {
             role: 'user',
@@ -122,41 +123,44 @@ function orderPlacesByTakenTime(places: PlaceInput[]) {
 }
 
 function fallbackDraft(trip: TripInput, places: PlaceInput[]) {
-  const sections = places
-    .map((place) => {
-      const memo = place.user_memo?.trim();
-      const sentence = memo
-        ? rewriteMemoFallback(place.name, memo)
-        : `${place.name}에서는 사진 ${place.photo_count}장을 남기며 그날의 분위기를 차분히 기록했다. 사진 속 장면을 떠올리며 블로그 본문에는 방문 당시의 동선과 인상을 자연스럽게 덧붙이면 좋다.`;
-
-      return `## ${place.name}
-
-방문일: ${place.visit_date}
-사진: ${place.photo_count}장
-
-${sentence}
-`;
-    })
-    .join('\n');
+  const sections = places.map((place) => renderFallbackSection(place)).join('\n');
 
   return {
     title: `${trip.title} 여행기`,
     contentMarkdown: `## 블로그 제목 후보
 1. ${trip.region}에서 보낸 ${trip.title}
-2. 사진 순서대로 정리한 ${trip.region} 여행
-3. ${trip.title}: 장소별로 남긴 여행 기록
+2. 사진 순서대로 따라간 ${trip.region} 여행
+3. ${trip.title}, 장소별로 남긴 하루의 기록
 
 # ${trip.title}
 
-${trip.start_date}부터 ${trip.end_date}까지 ${trip.region}에서 보낸 시간을 사진 촬영 순서에 맞춰 정리했다. 각 장소의 메모와 사진 기록을 바탕으로 여행의 흐름이 자연스럽게 이어지도록 초안을 구성했다.
+${trip.start_date}부터 ${trip.end_date}까지 ${trip.region}에서 보낸 시간을 사진 촬영 순서대로 정리했다. 사진을 다시 보니 장소마다 분위기가 조금씩 달랐고, 짧은 이동 속에서도 여행의 흐름이 자연스럽게 이어졌다.
 
 ${sections}`
   };
 }
 
-function rewriteMemoFallback(placeName: string, memo: string) {
-  const tone = memo.length > 80 ? '여러 장면이 함께 남아 있는' : '짧지만 인상이 분명한';
-  return `${placeName}에서는 ${tone} 메모를 바탕으로, 방문 당시의 분위기와 기억에 남은 포인트를 자연스럽게 풀어낼 수 있다. 사진 흐름에 맞춰 그 순간의 감상과 동선을 이어 쓰면 블로그 문장으로 읽기 좋다.`;
+function renderFallbackSection(place: PlaceInput) {
+  const memo = place.user_memo?.trim();
+  const memoSentence = memo ? memoToSentence(place.name, memo) : `${place.name}에서는 사진 ${place.photo_count}장을 남겼다. 특별한 메모는 없지만, 사진 속 장면만으로도 그날 잠시 머물렀던 분위기가 다시 떠오른다.`;
+
+  return `## ${place.name}
+
+${place.visit_date}에 들른 ${place.name}은 이번 여행의 한 장면으로 남았다. ${memoSentence} 오래 머문 장소가 아니더라도 사진을 찍어둔 덕분에 여행의 순서와 감정이 또렷하게 이어졌다.
+`;
+}
+
+function memoToSentence(placeName: string, memo: string) {
+  const normalized = memo.replace(/\s+/g, ' ').trim();
+  const mood = normalized.length > 80 ? '여러 장면이 겹쳐진 곳' : '짧지만 인상이 선명한 곳';
+  const focus = /맛|음식|커피|카페|식사|디저트/.test(normalized)
+    ? '먹고 마신 경험'
+    : /예쁘|풍경|사진|뷰|바다|산|거리/.test(normalized)
+      ? '눈에 들어온 풍경'
+      : /힘들|아쉽|복잡|기다|덥|춥/.test(normalized)
+        ? '이동 중의 작은 변수'
+        : '그때의 분위기';
+  return `${placeName}은 ${mood}이었다. ${focus}이 기억에 남아, 사진을 넘겨볼수록 그 순간의 감정과 동선이 자연스럽게 이어졌다.`;
 }
 
 function extractOutputText(data: any) {
