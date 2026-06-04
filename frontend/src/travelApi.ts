@@ -85,6 +85,8 @@ export const travelApi = {
   },
 
   async currentUser(): Promise<UserProfile | null> {
+    await completeOAuthRedirect();
+
     const { data: sessionResult } = await supabase.auth.getSession();
     if (!sessionResult.session) return null;
 
@@ -327,9 +329,39 @@ export const travelApi = {
 };
 
 async function requireUser() {
+  await completeOAuthRedirect();
+
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) throw new Error('로그인이 필요합니다.');
   return data.user;
+}
+
+let authRedirectHandled = false;
+
+async function completeOAuthRedirect() {
+  if (authRedirectHandled || typeof window === 'undefined') return;
+  authRedirectHandled = true;
+
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get('code');
+  const authError = url.searchParams.get('error') ?? url.searchParams.get('error_description');
+
+  if (authError) {
+    console.warn('Supabase OAuth redirect error:', authError);
+    return;
+  }
+
+  if (!code) return;
+
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    console.warn('Supabase OAuth code exchange failed:', error.message);
+    return;
+  }
+
+  url.searchParams.delete('code');
+  url.searchParams.delete('state');
+  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
 }
 
 async function extractExif(file: File): Promise<ExifResult> {
