@@ -2,10 +2,6 @@ import { corsHeaders, jsonResponse } from '../_shared/cors.ts';
 
 type KakaoPlace = {
   place_name?: string;
-  category_name?: string;
-  address_name?: string;
-  road_address_name?: string;
-  distance?: string;
 };
 
 type Diagnostic = {
@@ -18,6 +14,12 @@ type Diagnostic = {
     count?: number;
     error?: string;
   }>;
+};
+
+type AddressResult = {
+  placeName: string | null;
+  regionName: string | null;
+  reason?: string;
 };
 
 const CATEGORY_GROUPS = ['AT4', 'CT1', 'FD6', 'CE7', 'AD5', 'PK6', 'MT1', 'CS2', 'PS3', 'AC5', 'BK9', 'HP8', 'PM9', 'SC4', 'OL7', 'SW8'];
@@ -35,6 +37,7 @@ Deno.serve(async (req) => {
     if (typeof latitude !== 'number' || typeof longitude !== 'number') {
       return jsonResponse({
         placeName: '위치 정보 없음',
+        regionName: null,
         diagnostic: { source: 'fallback', reason: 'invalid_coordinates' } satisfies Diagnostic
       });
     }
@@ -42,22 +45,28 @@ Deno.serve(async (req) => {
     if (!apiKey) {
       return jsonResponse({
         placeName: FALLBACK_PLACE_NAME,
+        regionName: null,
         diagnostic: { source: 'fallback', reason: 'missing_kakao_rest_api_key' } satisfies Diagnostic
       });
     }
 
-    const categoryResult = await searchNearbyPlace(apiKey, latitude, longitude);
+    const [categoryResult, addressResult] = await Promise.all([
+      searchNearbyPlace(apiKey, latitude, longitude),
+      reverseGeocode(apiKey, latitude, longitude)
+    ]);
+
     if (categoryResult.placeName) {
       return jsonResponse({
         placeName: categoryResult.placeName,
+        regionName: addressResult.regionName,
         diagnostic: { source: 'category', categoryAttempts: categoryResult.attempts } satisfies Diagnostic
       });
     }
 
-    const addressResult = await reverseGeocode(apiKey, latitude, longitude);
     if (addressResult.placeName) {
       return jsonResponse({
         placeName: addressResult.placeName,
+        regionName: addressResult.regionName,
         diagnostic: {
           source: 'address',
           reason: 'no_category_place_result',
@@ -68,6 +77,7 @@ Deno.serve(async (req) => {
 
     return jsonResponse({
       placeName: FALLBACK_PLACE_NAME,
+      regionName: addressResult.regionName,
       diagnostic: {
         source: 'fallback',
         reason: addressResult.reason ?? 'no_place_or_address_result',
@@ -117,7 +127,7 @@ async function searchNearbyPlace(apiKey: string, latitude: number, longitude: nu
   return { placeName: null, attempts };
 }
 
-async function reverseGeocode(apiKey: string, latitude: number, longitude: number) {
+async function reverseGeocode(apiKey: string, latitude: number, longitude: number): Promise<AddressResult> {
   const url = new URL('https://dapi.kakao.com/v2/local/geo/coord2address.json');
   url.searchParams.set('x', String(longitude));
   url.searchParams.set('y', String(latitude));
@@ -127,11 +137,14 @@ async function reverseGeocode(apiKey: string, latitude: number, longitude: numbe
   });
 
   if (!response.ok) {
-    return { placeName: null, reason: `kakao_address_http_${response.status}` };
+    return { placeName: null, regionName: null, reason: `kakao_address_http_${response.status}` };
   }
 
   const data = await response.json();
   const document = data.documents?.[0];
-  const placeName = document?.road_address?.building_name || document?.road_address?.address_name || document?.address?.address_name || null;
-  return { placeName, reason: placeName ? undefined : 'no_address_result' };
+  const roadAddress = document?.road_address;
+  const address = document?.address;
+  const placeName = roadAddress?.building_name || roadAddress?.address_name || address?.address_name || null;
+  const regionName = [address?.region_1depth_name, address?.region_2depth_name].filter(Boolean).join(' ') || null;
+  return { placeName, regionName, reason: placeName ? undefined : 'no_address_result' };
 }

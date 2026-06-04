@@ -29,6 +29,9 @@ export type PlaceGroup = {
   latitude: number | null;
   longitude: number | null;
   visit_date: string;
+  visit_order: number;
+  started_at: string | null;
+  ended_at: string | null;
   photo_count: number;
   selected: boolean;
   user_memo: string;
@@ -56,7 +59,4 @@ export type BlogDraft = {
 
 export type TripForm = {
   title: string;
-  region: string;
-  start_date: string;
-  end_date: string;
 };

@@ -3,12 +3,8 @@ import { FormEvent, MouseEvent, useEffect, useMemo, useState } from 'react';
 import { travelApi } from './travelApi';
 import { BlogDraft, PlaceGroupWithPhotos, Trip, TripForm } from './types';
 
-const today = new Date().toISOString().slice(0, 10);
 const blankTrip: TripForm = {
-  title: '',
-  region: '',
-  start_date: today,
-  end_date: today
+  title: ''
 };
 
 type UserProfile = {
@@ -69,7 +65,7 @@ export function App() {
       setTrips((current) => [created, ...current]);
       setTripForm(blankTrip);
       await selectTrip(created);
-      setStatus('여행 기록을 생성했습니다.');
+      setStatus('여행 기록을 생성했습니다. 사진을 업로드하면 여행 지역과 날짜가 자동으로 채워집니다.');
     } finally {
       setBusy(false);
     }
@@ -109,11 +105,13 @@ export function App() {
     setStatus('사진 업로드, EXIF 추출, Kakao 장소명 확인 중입니다.');
     try {
       const result = await travelApi.uploadPhotos(activeTrip, files);
-      setPlaces(await travelApi.listPlaces(activeTrip.id));
+      setActiveTrip(result.trip);
+      setTrips((current) => current.map((trip) => (trip.id === result.trip.id ? result.trip : trip)));
+      setPlaces(await travelApi.listPlaces(result.trip.id));
       setStatus(
         result.placeWarnings.length > 0
           ? `사진은 정리했지만 장소명 확인이 필요한 항목이 있습니다. 콘솔에서 Kakao 진단 정보를 확인하세요. (${result.placeWarnings.length}건)`
-          : '사진과 장소 그룹을 촬영 순서 기준으로 정리했습니다.'
+          : '사진 메타데이터로 여행 지역, 여행 날짜, 장소 그룹을 자동 정리했습니다.'
       );
     } finally {
       setBusy(false);
@@ -184,10 +182,8 @@ export function App() {
         <aside className="space-y-4">
           <form className="rounded-md border border-stone-200 bg-white p-4" onSubmit={createTrip}>
             <h2 className="mb-3 text-base font-semibold">여행 기록 생성</h2>
-            <Field label="여행 제목" value={tripForm.title} onChange={(title) => setTripForm({ ...tripForm, title })} />
-            <Field label="여행 지역" value={tripForm.region} onChange={(region) => setTripForm({ ...tripForm, region })} />
-            <Field label="시작일" type="date" value={tripForm.start_date} onChange={(start_date) => setTripForm({ ...tripForm, start_date })} />
-            <Field label="종료일" type="date" value={tripForm.end_date} onChange={(end_date) => setTripForm({ ...tripForm, end_date })} />
+            <Field label="여행 제목" value={tripForm.title} onChange={(title) => setTripForm({ title })} />
+            <p className="mb-3 text-xs leading-5 text-stone-500">여행 지역과 여행 날짜는 사진 메타데이터로 자동 설정됩니다.</p>
             <button className="mt-2 w-full rounded-md bg-stone-900 px-4 py-2 text-white disabled:opacity-50" disabled={!user || busy}>
               생성
             </button>
@@ -205,7 +201,9 @@ export function App() {
                 >
                   <button className="min-w-0 flex-1 text-left" onClick={() => selectTrip(trip)}>
                     <span className="block truncate font-medium">{trip.title}</span>
-                    <span className="block truncate text-stone-500">{trip.region}</span>
+                    <span className="block truncate text-stone-500">
+                      {trip.region} · {trip.start_date} ~ {trip.end_date}
+                    </span>
                   </button>
                   <button
                     className="rounded-md border border-stone-300 p-2 text-stone-500 hover:border-red-300 hover:text-red-600 disabled:opacity-50"
