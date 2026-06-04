@@ -16,6 +16,14 @@ type ExifResult = {
 
 type GroupKey = string;
 
+type DraftPlace = PlaceGroup & {
+  first_taken_at: string | null;
+  photos: Array<{
+    original_file_name: string;
+    taken_at: string | null;
+  }>;
+};
+
 export const travelApi = {
   async signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -68,9 +76,18 @@ export const travelApi = {
 
   async uploadPhotos(trip: Trip, files: FileList): Promise<void> {
     const user = await requireUser();
+    const prepared = await Promise.all(
+      Array.from(files).map(async (file, uploadIndex) => ({
+        file,
+        uploadIndex,
+        exif: await extractExif(file)
+      }))
+    );
 
-    for (const file of Array.from(files)) {
-      const exif = await extractExif(file);
+    const ordered = prepared.sort((a, b) => comparePhotoTime(a.exif.takenAt, b.exif.takenAt, a.uploadIndex, b.uploadIndex));
+
+    for (const item of ordered) {
+      const { file, exif } = item;
       const placeName =
         exif.latitude !== null && exif.longitude !== null
           ? await guessPlaceName(exif.latitude, exif.longitude)
@@ -116,9 +133,9 @@ export const travelApi = {
     (existing ?? []).forEach((group) => previous.set(groupKey(group.visit_date, group.name), group));
 
     const groups = new Map<GroupKey, Photo[]>();
-    (photos ?? []).forEach((photo) => {
+    sortPhotosByTakenTime(photos ?? []).forEach((photo) => {
       const visitDate = toVisitDate(photo.taken_at, trip.start_date);
-      const name = photo.place_name || '위치 정보 없음';
+      const name = normalizePlaceName(photo.place_name);
       const key = groupKey(visitDate, name);
       groups.set(key, [...(groups.get(key) ?? []), photo]);
     });
@@ -127,22 +144,27 @@ export const travelApi = {
     if (remove.error) throw remove.error;
     if (groups.size === 0) return;
 
-    const rows = Array.from(groups.entries()).map(([key, groupPhotos]) => {
-      const [visitDate, name] = key.split('|');
-      const firstWithGps = groupPhotos.find((photo) => photo.latitude !== null && photo.longitude !== null);
-      const old = previous.get(key);
-      return {
-        trip_id: trip.id,
-        user_id: trip.user_id,
-        name,
-        visit_date: visitDate,
-        latitude: firstWithGps?.latitude ?? null,
-        longitude: firstWithGps?.longitude ?? null,
-        photo_count: groupPhotos.length,
-        selected: old?.selected ?? true,
-        user_memo: old?.user_memo ?? ''
-      };
-    });
+    const rows = Array.from(groups.entries())
+      .map(([key, groupPhotos]) => {
+        const [visitDate, name] = key.split('|');
+        const sortedGroupPhotos = sortPhotosByTakenTime(groupPhotos);
+        const firstWithGps = sortedGroupPhotos.find((photo) => photo.latitude !== null && photo.longitude !== null);
+        const old = previous.get(key);
+        return {
+          trip_id: trip.id,
+          user_id: trip.user_id,
+          name,
+          visit_date: visitDate,
+          latitude: firstWithGps?.latitude ?? null,
+          longitude: firstWithGps?.longitude ?? null,
+          photo_count: sortedGroupPhotos.length,
+          selected: old?.selected ?? true,
+          user_memo: old?.user_memo ?? '',
+          firstTakenAt: firstPhotoTime(sortedGroupPhotos)
+        };
+      })
+      .sort((a, b) => compareNullableDate(a.firstTakenAt, b.firstTakenAt) || a.name.localeCompare(b.name, 'ko'))
+      .map(({ firstTakenAt: _firstTakenAt, ...row }) => row);
 
     const insert = await supabase.from('place_groups').insert(rows);
     if (insert.error) throw insert.error;
@@ -152,9 +174,7 @@ export const travelApi = {
     const { data: places, error } = await supabase
       .from('place_groups')
       .select('*')
-      .eq('trip_id', tripId)
-      .order('visit_date', { ascending: true })
-      .order('name', { ascending: true });
+      .eq('trip_id', tripId);
     if (error) throw error;
 
     const { data: photos, error: photosError } = await supabase
@@ -163,8 +183,9 @@ export const travelApi = {
       .eq('trip_id', tripId);
     if (photosError) throw photosError;
 
-    const previewMap = await buildPhotoPreviewMap(photos ?? [], places ?? []);
-    return (places ?? []).map((place) => ({
+    const sortedPhotos = sortPhotosByTakenTime(photos ?? []);
+    const previewMap = await buildPhotoPreviewMap(sortedPhotos, places ?? []);
+    return sortPlacesByPhotoTime(places ?? [], sortedPhotos).map((place) => ({
       ...place,
       photos: previewMap.get(place.id) ?? []
     }));
@@ -193,11 +214,12 @@ export const travelApi = {
     return data;
   },
 
-  async generateDraft(trip: Trip, places: PlaceGroup[]): Promise<BlogDraft> {
+  async generateDraft(trip: Trip, places: PlaceGroupWithPhotos[]): Promise<BlogDraft> {
     const user = await requireUser();
     const selectedPlaces = places.filter((place) => place.selected);
+    const draftPlaces = await buildDraftPlaces(trip.id, selectedPlaces);
     const { data, error } = await supabase.functions.invoke('generate-blog-draft', {
-      body: { trip, places: selectedPlaces }
+      body: { trip, places: draftPlaces }
     });
     if (error) throw error;
 
@@ -255,8 +277,8 @@ async function guessPlaceName(latitude: number, longitude: number): Promise<stri
   const { data, error } = await supabase.functions.invoke('guess-place', {
     body: { latitude, longitude }
   });
-  if (error) return formatFallback(latitude, longitude);
-  return data?.placeName ?? formatFallback(latitude, longitude);
+  if (error) return '장소명 확인 필요';
+  return normalizePlaceName(data?.placeName);
 }
 
 function sanitizeFileName(name: string) {
@@ -271,8 +293,67 @@ function groupKey(visitDate: string, name: string) {
   return `${visitDate}|${name}`;
 }
 
-function formatFallback(latitude: number, longitude: number) {
-  return `위치 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+function normalizePlaceName(name: string | null | undefined) {
+  const trimmed = name?.trim();
+  if (!trimmed) return '장소명 확인 필요';
+  if (/위치\s*-?\d|\d+\.\d+/.test(trimmed)) return '장소명 확인 필요';
+  return trimmed;
+}
+
+function comparePhotoTime(aTakenAt: string | null, bTakenAt: string | null, aIndex = 0, bIndex = 0) {
+  const timeCompare = compareNullableDate(aTakenAt, bTakenAt);
+  return timeCompare || aIndex - bIndex;
+}
+
+function compareNullableDate(a: string | null, b: string | null) {
+  const aTime = a ? Date.parse(a) : Number.POSITIVE_INFINITY;
+  const bTime = b ? Date.parse(b) : Number.POSITIVE_INFINITY;
+  return aTime - bTime;
+}
+
+function sortPhotosByTakenTime(photos: Photo[]) {
+  return [...photos].sort((a, b) => compareNullableDate(a.taken_at, b.taken_at) || a.created_at.localeCompare(b.created_at));
+}
+
+function firstPhotoTime(photos: Photo[]) {
+  return sortPhotosByTakenTime(photos)[0]?.taken_at ?? null;
+}
+
+function sortPlacesByPhotoTime(places: PlaceGroup[], photos: Photo[]) {
+  return [...places].sort((a, b) => {
+    const aTime = firstPhotoTime(photosForPlace(a, photos));
+    const bTime = firstPhotoTime(photosForPlace(b, photos));
+    return compareNullableDate(aTime, bTime) || a.visit_date.localeCompare(b.visit_date) || a.name.localeCompare(b.name, 'ko');
+  });
+}
+
+async function buildDraftPlaces(tripId: string, places: PlaceGroupWithPhotos[]): Promise<DraftPlace[]> {
+  const { data: photos, error } = await supabase
+    .from('photos')
+    .select('*')
+    .eq('trip_id', tripId);
+  if (error) throw error;
+
+  const sortedPhotos = sortPhotosByTakenTime(photos ?? []);
+  return sortPlacesByPhotoTime(places, sortedPhotos).map((place) => {
+    const placePhotos = photosForPlace(place, sortedPhotos);
+    return {
+      ...place,
+      name: normalizePlaceName(place.name),
+      first_taken_at: firstPhotoTime(placePhotos),
+      photos: placePhotos.map((photo) => ({
+        original_file_name: photo.original_file_name,
+        taken_at: photo.taken_at
+      }))
+    };
+  });
+}
+
+function photosForPlace(place: PlaceGroup, photos: Photo[]) {
+  return photos.filter((photo) => {
+    const visitDate = toVisitDate(photo.taken_at, place.visit_date);
+    return visitDate === place.visit_date && normalizePlaceName(photo.place_name) === normalizePlaceName(place.name);
+  });
 }
 
 async function buildPhotoPreviewMap(photos: Photo[], places: PlaceGroup[]) {
@@ -280,10 +361,10 @@ async function buildPhotoPreviewMap(photos: Photo[], places: PlaceGroup[]) {
 
   for (const photo of photos) {
     const visitDate = toVisitDate(photo.taken_at, new Date(photo.created_at).toISOString().slice(0, 10));
-    const name = photo.place_name || '위치 정보 없음';
+    const name = normalizePlaceName(photo.place_name);
     const place =
-      places.find((candidate) => candidate.visit_date === visitDate && candidate.name === name) ??
-      places.find((candidate) => candidate.name === name);
+      places.find((candidate) => candidate.visit_date === visitDate && normalizePlaceName(candidate.name) === name) ??
+      places.find((candidate) => normalizePlaceName(candidate.name) === name);
     if (!place) continue;
 
     const { data } = await supabase.storage.from('trip-photos').createSignedUrl(photo.storage_path, 60 * 30);

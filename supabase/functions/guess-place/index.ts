@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
     }
 
     if (!apiKey) {
-      return jsonResponse({ placeName: formatFallback(latitude, longitude) });
+      return jsonResponse({ placeName: '장소명 확인 필요' });
     }
 
     const placeName = await searchNearbyPlace(apiKey, latitude, longitude);
@@ -30,21 +30,21 @@ Deno.serve(async (req) => {
     }
 
     const address = await reverseGeocode(apiKey, latitude, longitude);
-    return jsonResponse({ placeName: address ?? formatFallback(latitude, longitude) });
+    return jsonResponse({ placeName: address ?? '장소명 확인 필요' });
   } catch (error) {
     return jsonResponse({ error: error instanceof Error ? error.message : 'Unknown error' }, 500);
   }
 });
 
 async function searchNearbyPlace(apiKey: string, latitude: number, longitude: number) {
-  const categories = ['FD6', 'CE7', 'AT4', 'CT1'];
+  const categories = ['AT4', 'CT1', 'FD6', 'CE7'];
 
   for (const category of categories) {
     const url = new URL('https://dapi.kakao.com/v2/local/search/category.json');
     url.searchParams.set('category_group_code', category);
     url.searchParams.set('x', String(longitude));
     url.searchParams.set('y', String(latitude));
-    url.searchParams.set('radius', '120');
+    url.searchParams.set('radius', '250');
     url.searchParams.set('sort', 'distance');
     url.searchParams.set('size', '1');
 
@@ -82,8 +82,4 @@ async function reverseGeocode(apiKey: string, latitude: number, longitude: numbe
   const data = await response.json();
   const document = data.documents?.[0];
   return document?.road_address?.address_name ?? document?.address?.address_name ?? null;
-}
-
-function formatFallback(latitude: number, longitude: number) {
-  return `위치 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 }
